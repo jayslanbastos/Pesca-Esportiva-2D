@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pesca Esportiva 2D</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+
+        canvas {
+            display: block;
+            border-radius: 8px;
+            background-color: #87CEEB;
+        }
+
+        /* Interface Sobreposta (UI) */
+        .ui-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            pointer-events: none;
+            line-height: 1.5;
+        }
+
+        .shop-modal {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 450px;
+            background: rgba(20, 20, 20, 0.95);
+            border: 2px solid #444;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.9);
+        }
+
+        .shop-modal h2 {
+            margin-top: 0;
+            text-align: center;
+            color: #f1c40f;
+        }
+
+        .shop-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 8px;
+            background: #2a2a2a;
+            border-radius: 5px;
+        }
+
+        .shop-item button {
+            background: #27ae60;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .shop-item button:hover {
+            background: #2ecc71;
+        }
+
+        .shop-item button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .close-btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background: #c0392b;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+
+        .close-btn:hover {
+            background: #e74c3c;
+        }
+
+        #controls-hint {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.6);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <!-- Painel de Status -->
+    <div class="ui-panel" id="uiPanel">
+        <div><strong>Moedas:</strong> $<span id="coinsDisplay">0</span></div>
+        <div><strong>Inventário:</strong> <span id="inventoryDisplay">0</span>/5</div>
+        <div><strong>Vara:</strong> <span id="rodDisplay">Nível 1</span></div>
+        <div><strong>Linha:</strong> <span id="lineDisplay">Nível 1</span></div>
+        <div><strong>Isca:</strong> <span id="baitDisplay">Nível 1</span></div>
+    </div>
+
+    <!-- Dica de Controles -->
+    <div id="controls-hint">
+        [ESPAÇO] Lançar/Recolher/Puxar | [M] Abrir Mercado/Loja
+    </div>
+
+    <!-- Modal do Mercado e Loja -->
+    <div class="shop-modal" id="shopModal">
+        <h2>Mercado & Loja</h2>
+        
+        <div style="margin-bottom: 15px; text-align: center;">
+            <button id="sellBtn" style="width: 100%; padding: 10px; background: #f39c12; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Vender Todos os Peixes</button>
+        </div>
+
+        <hr style="border-color: #444; margin: 15px 0;">
+
+        <div class="shop-item">
+            <div>
+                <strong>Melhorar Vara</strong><br>
+                <small>Diminui tempo de espera</small>
+            </div>
+            <button id="upgradeRodBtn" onclick="game.buyUpgrade('rod')">Comprar ($<span id="rodPrice">50</span>)</button>
+        </div>
+
+        <div class="shop-item">
+            <div>
+                <strong>Melhorar Linha</strong><br>
+                <small>Aumenta resistência à tensão</small>
+            </div>
+            <button id="upgradeLineBtn" onclick="game.buyUpgrade('line')">Comprar ($<span id="linePrice">50</span>)</button>
+        </div>
+
+        <div class="shop-item">
+            <div>
+                <strong>Melhorar Isca</strong><br>
+                <small>Atrai peixes mais raros</small>
+            </div>
+            <button id="upgradeBaitBtn" onclick="game.buyUpgrade('bait')">Comprar ($<span id="baitPrice">75</span>)</button>
+        </div>
+
+        <button class="close-btn" onclick="game.toggleShop()">Fechar</button>
+    </div>
+</div>
+
+<script>
+// ============================================================================
+// BASE DE DADOS: ESPÉCIES DE PEIXES
+// ============================================================================
+const FISH_SPECIES = [
+    { name: "Lambari",  rarity: "Comum",    color: "#a4b0be", minWeight: 0.1, maxWeight: 0.5, baseValue: 10, difficulty: 1 },
+    { name: "Tilápia",  rarity: "Comum",    color: "#70a1ff", minWeight: 0.8, maxWeight: 3.0, baseValue: 25, difficulty: 1.5 },
+    { name: "Tucunaré", rarity: "Raro",     color: "#2ed573", minWeight: 2.0, maxWeight: 7.0, baseValue: 60, difficulty: 2.5 },
+    { name: "Tambaqui", rarity: "Raro",     color: "#eccc68", minWeight: 5.0, maxWeight: 18.0, baseValue: 120, difficulty: 3.5 },
+    { name: "Pirarucu", rarity: "Lendário", color: "#ff4757", minWeight: 20.0, maxWeight: 80.0, baseValue: 350, difficulty: 5.0 }
+];
+
+// STATES DO JOGO
+const STATE = {
+    IDLE: 0,
+    WAITING: 1,
+    REELING: 2,
+    SUCCESS: 3,
+    LINE_BROKEN: 4
+};
+
+// ============================================================================
+// CLASSE PRINCIPAL DO JOGO
+// ============================================================================
+class FishingGame {
+    constructor() {
+        this.canvas = document.getElementById("gameCanvas");
+        this.ctx = this.canvas.getContext("2d");
+        
+        // Estado do Jogador & Economia
+        this.coins = 0;
+        this.inventory = [];
+        this.maxInventory = 5;
+
+        // Níveis de Equipamento
+        this.rodLevel = 1;
+        this.lineLevel = 1;
+        this.baitLevel = 1;
+
+        // Estado Atual do Jogo
+        this.currentState = STATE.IDLE;
+        this.isShopOpen = false;
+
+        // Variáveis de Mecânica de Pesca
+        this.waitTimer = 0;
+        this.currentFish = null;
+        
+        // Minigame de Tensão
+        this.tension = 0;          // 0 a 100
+        this.progress = 0;         // 0 a 100 (para capturar)
+        this.isPulling = false;
+
+        // Configuração dos Controles
+        this.setupControls();
+        
+        // Loop do Jogo
+        this.lastTime = performance.now();
+        requestAnimationFrame((time) => this.loop(time));
+
+        this.updateUI();
+    }
+
+    setupControls() {
+        window.addEventListener("keydown", (e) => {
+            if (e.code === "Space") {
+                e.preventDefault();
+                this.handleSpacePress();
+            }
+            if (e.code === "KeyM") {
+                this.toggleShop();
+            }
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.code === "Space") {
+                this.isPulling = false;
+            }
+        });
+
+        document.getElementById("sellBtn").addEventListener("click", () => this.sellFish());
+    }
+
+    handleSpacePress() {
+        if (this.isShopOpen) return;
+
+        if (this.currentState === STATE.IDLE) {
+            if (this.inventory.length >= this.maxInventory) {
+                alert("Inventário cheio! Venda seus peixes no mercado.");
+                return;
+            }
+            this.startFishing();
+        } else if (this.currentState === STATE.WAITING) {
+            // Recolhe antecipadamente sem peixe
+            this.currentState = STATE.IDLE;
+        } else if (this.currentState === STATE.REELING) {
+            this.isPulling = true;
+        } else if (this.currentState === STATE.SUCCESS || this.currentState === STATE.LINE_BROKEN) {
+            this.currentState = STATE.IDLE;
+        }
+    }
+
+    startFishing() {
+        this.currentState = STATE.WAITING;
+        // Tempo de espera reduzido conforme o nível da vara (mínimo de 1.5s)
+        const baseWait = Math.random() * 4000 + 3000;
+        const reduction = (this.rodLevel - 1) * 700;
+        this.waitTimer = Math.max(1500, baseWait - reduction);
+    }
+
+    hookFish() {
+        this.currentState = STATE.REELING;
+        this.tension = 20;
+        this.progress = 20;
+        this.currentFish = this.generateFish();
+    }
+
+    generateFish() {
+        // Probabilidade de raridade influenciada pela isca
+        const rand = Math.random() * 100;
+        let selectedSpecies;
+
+        const legendaryChance = 5 + (this.baitLevel - 1) * 5; // Nv 1: 5%, Nv 2: 10%...
+        const rareChance = 25 + (this.baitLevel - 1) * 8;      // Nv 1: 25%, Nv 2: 33%...
+
+        if (rand < legendaryChance) {
+            selectedSpecies = FISH_SPECIES.find(f => f.rarity === "Lendário");
+        } else if (rand < legendaryChance + rareChance) {
+            const rareList = FISH_SPECIES.filter(f => f.rarity === "Raro");
+            selectedSpecies = rareList[Math.floor(Math.random() * rareList.length)];
+        } else {
+            const commonList = FISH_SPECIES.filter(f => f.rarity === "Comum");
+            selectedSpecies = commonList[Math.floor(Math.random() * commonList.length)];
+        }
+
+        // Peso aleatório dentro da faixa da espécie
+        const weight = (Math.random() * (selectedSpecies.maxWeight - selectedSpecies.minWeight) + selectedSpecies.minWeight).toFixed(2);
+        
+        return {
+            ...selectedSpecies,
+            weight: parseFloat(weight)
+        };
+    }
+
+    // ============================================================================
+    // LÓGICA DE ATUALIZAÇÃO (UPDATE)
+    // ============================================================================
+    // ============================================================================
+// LÓGICA DE ATUALIZAÇÃO AJUSTADA (MENOS DIFÍCIL PARA PEIXES GRANDES)
+// ============================================================================
+update(deltaTime) {
+    if (this.currentState === STATE.WAITING) {
+        this.waitTimer -= deltaTime;
+        if (this.waitTimer <= 0) {
+            this.hookFish();
+        }
+    }
+
+    if (this.currentState === STATE.REELING) {
+        const fish = this.currentFish;
+        
+        // Aumentamos o benefício da linha para facilitar a tensão (35% por nível em vez de 25%)
+        const lineResistance = 1 + (this.lineLevel - 1) * 0.35;
+
+        // Amortecimento na dificuldade dos peixes grandes (teto suave)
+        // Reduzimos o impacto direto de dificuldades altas (ex: Pirarucu)
+        const adjustedDifficulty = Math.pow(fish.difficulty, 0.75); 
+
+        if (this.isPulling) {
+            // Puxando: Tensão sobe mais devagar (multiplicador reduzido de 22 para 14)
+            this.tension += (adjustedDifficulty * 14 / lineResistance) * (deltaTime / 1000);
+            
+            // Progresso de captura sobe um pouco mais rápido (aumentado de 18 para 22)
+            this.progress += 22 * (deltaTime / 1000);
+        } else {
+            // Soltando: Tensão cai mais rápido para ajudar na recuperação (de 35 para 45)
+            this.tension -= 45 * (deltaTime / 1000);
+            
+            // O peixe escapa/recua mais devagar enquanto a linha está solta (multiplicador reduzido de 8 para 4)
+            this.progress -= (adjustedDifficulty * 4) * (deltaTime / 1000);
+        }
+
+        // Limites da tensão e progresso (0 a 100)
+        this.tension = Math.max(0, Math.min(100, this.tension));
+        this.progress = Math.max(0, Math.min(100, this.progress));
+
+        // Condição de Derrota: Linha Quebra
+        if (this.tension >= 100) {
+            this.currentState = STATE.LINE_BROKEN;
+        }
+
+        // Condição de Vitória: Peixe Capturado
+        if (this.progress >= 100) {
+            this.currentState = STATE.SUCCESS;
+            this.inventory.push(this.currentFish);
+            this.updateUI();
+        }
+    }
+}
+
+    // ============================================================================
+    // RENDERIZAÇÃO GRÁFICA (DRAW)
+    // ============================================================================
+    draw() {
+        // Limpar Tela / Cenário (Céu e Água)
+        this.ctx.fillStyle = "#70a1ff"; // Céu
+        this.ctx.fillRect(0, 0, this.canvas.width, 250);
+
+        this.ctx.fillStyle = "#1e90ff"; // Água
+        this.ctx.fillRect(0, 250, this.canvas.width, 350);
+
+        // Desenhar Pescador e Barco (Formas Geométricas)
+        this.drawFisherman();
+
+        // Renderizar elementos conforme o estado do jogo
+        if (this.currentState === STATE.WAITING) {
+            // Animação da Bóia na água
+            const buoyY = 320 + Math.sin(Date.now() / 200) * 3;
+            this.ctx.fillStyle = "#ff4757";
+            this.ctx.beginPath();
+            this.ctx.arc(550, buoyY, 8, 0, Math.PI * 2);
+            this.ctx.fill();
+
+            // Linha de Pesca
+            this.ctx.strokeStyle = "#ffffff";
+            this.ctx.beginPath();
+            this.ctx.moveTo(230, 210);
+            this.ctx.lineTo(550, buoyY);
+            this.ctx.stroke();
+
+            // Texto de Espera
+            this.drawText("Aguardando peixe morder...", 400, 100, "20px sans-serif", "#fff");
+
+        } else if (this.currentState === STATE.REELING) {
+            // Linha tencionada
+            this.ctx.strokeStyle = this.tension > 75 ? "#ff4757" : "#ffffff";
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            this.ctx.moveTo(230, 210);
+            this.ctx.lineTo(550, 350 + (Math.random() * 4 - 2));
+            this.ctx.stroke();
+            this.ctx.lineWidth = 1;
+
+            // Renderizar Minigame na Tela
+            this.drawMinigameUI();
+
+        } else if (this.currentState === STATE.SUCCESS) {
+            this.drawText("PEIXE CAPTURADO!", 400, 120, "bold 26px sans-serif", "#2ed573");
+            this.drawText(`${this.currentFish.name} (${this.currentFish.weight}kg)`, 400, 160, "20px sans-serif", "#fff");
+            this.drawText(`Raridade: ${this.currentFish.rarity}`, 400, 190, "16px sans-serif", "#f1c40f");
+            this.drawText("Pressione ESPAÇO para continuar", 400, 230, "14px sans-serif", "#ddd");
+
+            // Desenhar Peixe Capturado
+            this.ctx.fillStyle = this.currentFish.color;
+            this.ctx.beginPath();
+            this.ctx.ellipse(400, 280, 30, 15, 0, 0, Math.PI * 2);
+            this.ctx.fill();
+
+        } else if (this.currentState === STATE.LINE_BROKEN) {
+            this.drawText("A LINHA QUEBROU!", 400, 140, "bold 26px sans-serif", "#ff4757");
+            this.drawText("Você tencionou demais a linha.", 400, 180, "18px sans-serif", "#fff");
+            this.drawText("Pressione ESPAÇO para tentar novamente", 400, 220, "14px sans-serif", "#ddd");
+        } else if (this.currentState === STATE.IDLE) {
+            this.drawText("Pressione ESPAÇO para lançar a linha", 400, 120, "20px sans-serif", "#fff");
+        }
+    }
+
+    drawFisherman() {
+        // Barco (Trapézio / Retângulo)
+        this.ctx.fillStyle = "#8e44ad";
+        this.ctx.fillRect(100, 240, 120, 30);
+
+        // Pescador (Círculo e Retângulo)
+        this.ctx.fillStyle = "#f1c40f"; // Cabeça
+        this.ctx.beginPath();
+        this.ctx.arc(140, 210, 12, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.fillStyle = "#e67e22"; // Corpo
+        this.ctx.fillRect(130, 222, 20, 20);
+
+        // Vara de Pesca (Linha inclinada)
+        this.ctx.strokeStyle = "#d35400";
+        this.ctx.lineWidth = 4;
+        this.ctx.beginPath();
+        this.ctx.moveTo(145, 225);
+        this.ctx.lineTo(230, 210);
+        this.ctx.stroke();
+        this.ctx.lineWidth = 1;
+    }
+
+    drawMinigameUI() {
+        const x = 250;
+        const y = 50;
+        const width = 300;
+        const height = 20;
+
+        // --- BARRA DE TENSÃO ---
+        this.drawText("Tensão da Linha (Solte o ESPAÇO se ficar muito alta!)", 400, y - 10, "12px sans-serif", "#fff");
+        // Fundo
+        this.ctx.fillStyle = "#333";
+        this.ctx.fillRect(x, y, width, height);
+        // Preenchimento
+        const tensionWidth = (this.tension / 100) * width;
+        this.ctx.fillStyle = this.tension > 75 ? "#ff4757" : (this.tension > 40 ? "#ffa502" : "#2ed573");
+        this.ctx.fillRect(x, y, tensionWidth, height);
+        // Borda
+        this.ctx.strokeStyle = "#fff";
+        this.ctx.strokeRect(x, y, width, height);
+
+        // --- BARRA DE PROGRESSO DE CAPTURA ---
+        const y2 = y + 45;
+        this.drawText("Progresso de Captura (Segure ESPAÇO para puxar)", 400, y2 - 10, "12px sans-serif", "#fff");
+        // Fundo
+        this.ctx.fillStyle = "#333";
+        this.ctx.fillRect(x, y2, width, height);
+        // Preenchimento
+        const progWidth = (this.progress / 100) * width;
+        this.ctx.fillStyle = "#70a1ff";
+        this.ctx.fillRect(x, y2, progWidth, height);
+        // Borda
+        this.ctx.strokeStyle = "#fff";
+        this.ctx.strokeRect(x, y2, width, height);
+    }
+
+    drawText(text, x, y, font, color) {
+        this.ctx.font = font;
+        this.ctx.fillStyle = color;
+        this.ctx.textAlign = "center";
+        this.ctx.fillText(text, x, y);
+    }
+
+    // ============================================================================
+    // SISTEMA DE ECONOMIA E LOJA
+    // ============================================================================
+    sellFish() {
+        if (this.inventory.length === 0) {
+            alert("Seu inventário está vazio!");
+            return;
+        }
+
+        let totalGain = 0;
+        this.inventory.forEach(fish => {
+            // Valor proporcional ao peso e valor base
+            totalGain += Math.round(fish.baseValue * fish.weight);
+        });
+
+        this.coins += totalGain;
+        this.inventory = [];
+        this.updateUI();
+        alert(`Você vendeu todos os peixes por $${totalGain}!`);
+    }
+
+    buyUpgrade(type) {
+        if (type === 'rod') {
+            const price = this.rodLevel * 50;
+            if (this.coins >= price) {
+                this.coins -= price;
+                this.rodLevel++;
+            } else { alert("Moedas insuficientes!"); }
+        } else if (type === 'line') {
+            const price = this.lineLevel * 50;
+            if (this.coins >= price) {
+                this.coins -= price;
+                this.lineLevel++;
+            } else { alert("Moedas insuficientes!"); }
+        } else if (type === 'bait') {
+            const price = this.baitLevel * 75;
+            if (this.coins >= price) {
+                this.coins -= price;
+                this.baitLevel++;
+            } else { alert("Moedas insuficientes!"); }
+        }
+        this.updateUI();
+    }
+
+    toggleShop() {
+        this.isShopOpen = !this.isShopOpen;
+        document.getElementById("shopModal").style.display = this.isShopOpen ? "block" : "none";
+    }
+
+    updateUI() {
+        document.getElementById("coinsDisplay").innerText = this.coins;
+        document.getElementById("inventoryDisplay").innerText = this.inventory.length;
+        document.getElementById("rodDisplay").innerText = `Nível ${this.rodLevel}`;
+        document.getElementById("lineDisplay").innerText = `Nível ${this.lineLevel}`;
+        document.getElementById("baitDisplay").innerText = `Nível ${this.baitLevel}`;
+
+        // Atualizar preços da loja
+        document.getElementById("rodPrice").innerText = this.rodLevel * 50;
+        document.getElementById("linePrice").innerText = this.lineLevel * 50;
+        document.getElementById("baitPrice").innerText = this.baitLevel * 75;
+    }
+
+    // Loop principal de animação e lógica
+    loop(currentTime) {
+        const deltaTime = currentTime - this.lastTime;
+        this.lastTime = currentTime;
+
+        this.update(deltaTime);
+        this.draw();
+
+        requestAnimationFrame((time) => this.loop(time));
+    }
+}
+
+// Inicializar o jogo após o carregamento da página
+window.onload = () => {
+    window.game = new FishingGame();
+};
+</script>
+</body>
+</html>
